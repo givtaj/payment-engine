@@ -1,5 +1,5 @@
 use rust_decimal::Decimal;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::models::{
     account::Account,
@@ -11,6 +11,7 @@ use crate::models::{
 pub struct State {
     pub accounts: HashMap<u16, Account>,
     transactions: HashMap<u32, TransactionRecord>,
+    processed_tx_ids: HashSet<u32>,
 }
 
 impl State {
@@ -18,6 +19,7 @@ impl State {
         State {
             accounts: HashMap::new(),
             transactions: HashMap::new(),
+            processed_tx_ids: HashSet::new(),
         }
     }
 
@@ -29,9 +31,8 @@ impl State {
                 tx,
                 amount,
             } => {
-                if self.transactions.contains_key(&tx) {
-                    // Duplicate transaction ID, ignore
-                    return;
+                if self.processed_tx_ids.contains(&tx) {
+                    return; // duplicate tx id, ignore
                 }
 
                 if self.accounts.get(&client).is_some_and(|acc| acc.locked) {
@@ -57,6 +58,8 @@ impl State {
                         status: TransactionStatus::Normal,
                     },
                 );
+
+                self.processed_tx_ids.insert(tx);
             }
             Command::Withdrawal {
                 client_id: client,
@@ -64,9 +67,8 @@ impl State {
                 amount,
             } => {
                 // Check for duplicate tx id FIRST
-                if self.transactions.contains_key(&tx) {
-                    // Duplicate transaction ID, ignore
-                    return;
+                if self.processed_tx_ids.contains(&tx) {
+                    return; // duplicate tx id, ignore
                 }
 
                 if self.accounts.get(&client).is_some_and(|acc| acc.locked) {
@@ -83,17 +85,7 @@ impl State {
                 // Only withdraw if sufficient available funds
                 if account.available >= amount {
                     account.available -= amount;
-
-                    // Record successful withdrawal
-                    self.transactions.insert(
-                        tx,
-                        TransactionRecord {
-                            client_id: client,
-                            amount,
-                            is_deposit: false,
-                            status: TransactionStatus::Normal,
-                        },
-                    );
+                    self.processed_tx_ids.insert(tx);
                 }
                 // If insufficient funds, withdrawal is ignored (no change, no record)
             }
@@ -180,6 +172,8 @@ impl State {
 
                         account.locked = true; // always lock after chargeback
                     }
+
+                    self.transactions.remove(&tx);
                 }
             }
         }
@@ -308,9 +302,7 @@ mod tests {
         assert_eq!(acc.available, Decimal::from_str("5.0").unwrap());
         assert_eq!(acc.held, Decimal::ZERO);
         assert!(!acc.locked);
-        // Transaction status should remain Normal
-        let tx_record = state.transactions.get(&101).unwrap();
-        assert_eq!(tx_record.status, TransactionStatus::Normal);
+        assert!(state.transactions.get(&101).is_none());
     }
 
     #[test]
