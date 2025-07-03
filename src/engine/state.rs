@@ -156,28 +156,29 @@ impl State {
                 client_id: client,
                 tx,
             } => {
-                // Skip if already locked
-                if let Some(account) = self.accounts.get_mut(&client) {
-                    if account.locked {
-                        return; // ignore chargeback on a frozen account
-                    }
-                }
-
-                // println!("Processing chargeback for client {}, tx {}", client, tx);
+                // Check the transaction first
                 if let Some(record) = self.transactions.get_mut(&tx) {
-                    if record.client_id != client {
-                        return;
+                    if record.client_id != client || record.status != TransactionStatus::Disputed {
+                        return; // only chargeback a valid disputed transaction
                     }
-                    if record.status != TransactionStatus::Disputed {
-                        return; // only chargeback an active dispute
-                    }
-                    // Finalize the chargeback
-                    record.status = TransactionStatus::ChargedBack;
+
+                    // Fetch the account
                     if let Some(account) = self.accounts.get_mut(&client) {
-                        // Remove held funds permanently and lock the account
+                        if account.locked {
+                            return; // ignore chargeback on a frozen account
+                        }
+
+                        // Finalize chargeback
+                        record.status = TransactionStatus::ChargedBack;
+
                         account.held -= record.amount;
-                        // total funds implicitly reduced (available already zero of that amount)
-                        account.locked = true;
+
+                        // Ensure held does not go negative, if your design requires
+                        if account.held < Decimal::ZERO {
+                            account.held = Decimal::ZERO;
+                        }
+
+                        account.locked = true; // always lock after chargeback
                     }
                 }
             }

@@ -38,34 +38,44 @@ pub async fn send_commands_to_engine(
 ) {
     let deserialize_iter = csv_reader.deserialize::<TransactionInput>();
     let mut record_count: usize = 0;
+    let mut skipped_count = 0;
 
     for result in deserialize_iter {
-        let input: TransactionInput = match result {
-            Ok(rec) => rec,
+        match result {
+            Ok(rec) => {
+                let input: TransactionInput = rec;
+
+                let cmd = match input.to_command() {
+                    Ok(cmd) => cmd,
+                    Err(err) => {
+                        eprintln!("Skipping invalid command conversion: {}", err);
+                        skipped_count += 1;
+                        continue;
+                    }
+                };
+
+                if cmd_tx.send(cmd).await.is_err() {
+                    break;
+                }
+
+                record_count += 1;
+
+                if record_count % 1000 == 0 {
+                    tokio::task::yield_now().await;
+                }
+            }
             Err(e) => {
-                eprintln!("CSV parsing error: {}", e);
-                std::process::exit(1);
+                eprintln!("Skipping invalid CSV line: {}", e);
+                skipped_count += 1;
+                continue;
             }
-        };
-
-        let cmd = match input.to_command() {
-            Ok(cmd) => cmd,
-            Err(err) => {
-                eprintln!("{}", err);
-                std::process::exit(1);
-            }
-        };
-
-        if cmd_tx.send(cmd).await.is_err() {
-            break;
-        }
-
-        record_count += 1;
-
-        if record_count % 1000 == 0 {
-            tokio::task::yield_now().await;
         }
     }
+
+    eprintln!(
+        "Processed {} records, skipped {} invalid lines.",
+        record_count, skipped_count
+    );
 
     // Close the channel to signal engine no more commands will arrive
     drop(cmd_tx);
