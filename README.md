@@ -10,7 +10,7 @@ This project implements a simple payments engine that processes a stream of tran
 - Maintains accurate available, held, and total balances per client.
 - Locks accounts upon chargebacks, preventing any further transactions.
 - Reads and processes transactions in a streaming fashion to efficiently handle large CSV inputs.
-- Employs asynchronous, non-blocking processing via the Tokio runtime.
+- Processes transactions sequentially to maintain correct ordering, using streaming CSV parsing for efficiency.
 - Outputs final account states to `stdout` in CSV format.
 
 ---
@@ -131,7 +131,7 @@ Tests cover normal transaction flows, disputes and resolutions, chargebacks, and
 
 ## Notes
 
-The implementation uses streaming CSV parsing and Tokio async processing to efficiently handle large datasets with minimal memory footprint. Account state is held in a dedicated task with command message passing for concurrency safety.
+The implementation uses streaming CSV parsing to efficiently handle large datasets with minimal memory footprint. Transactions are processed sequentially to preserve ordering. Tokio is included but multi-task concurrency is not utilized in this version.
 
 ---
 
